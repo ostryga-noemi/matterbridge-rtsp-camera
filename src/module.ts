@@ -1,13 +1,15 @@
 import {
   bridgedNode,
   camera,
+  doorbell,
+  videoDoorbell,
   MatterbridgeDynamicPlatform,
   MatterbridgeEndpoint,
   type PlatformConfig,
   type PlatformMatterbridge,
 } from 'matterbridge';
 import type { AnsiLogger } from 'matterbridge/logger';
-import { CameraRequirements } from 'matterbridge/matter/devices';
+import { CameraRequirements, DoorbellRequirements } from 'matterbridge/matter/devices';
 import { Go2RTCClient } from './streaming/Go2RTCClient.js';
 import { MatterCameraAvStreamManagementServer } from './matter/behaviors/MatterCameraAvStreamManagementServer.js';
 import { MatterWebRtcTransportProviderServer } from './matter/behaviors/MatterWebRtcTransportProviderServer.js';
@@ -15,18 +17,22 @@ import { streamContext } from './matter/behaviors/streamContext.js';
 import { cameraAvStreamDefaults } from './matter/devices/cameraAvStreamDefaults.js';
 import { HomeKitCameraPublisher, homeKitStoragePath } from './HomeKitCameraPublisher.js';
 
+import { RingServer, type RingServerConfig } from './RingServer.js';
+
 export type CameraProtocol = 'matter' | 'homekit';
 
 export interface CameraConfig {
   id: string;
   name: string;
   rtspUrl: string;
+  videoDoorbell?: boolean;
 }
 
 export interface CameraPlatformConfig extends PlatformConfig {
   mode?: CameraProtocol;
   go2rtcUrl?: string;
   homekitPin?: string;
+  ringServer?: RingServerConfig;
   cameras: CameraConfig[];
 }
 
@@ -42,6 +48,8 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
   private readonly mode: CameraProtocol;
   private readonly go2rtc?: Go2RTCClient;
   private homekit?: HomeKitCameraPublisher;
+  private ringServer?: RingServer;
+  private readonly doorbells = new Map<string, MatterbridgeEndpoint>();
 
   constructor(
     matterbridge: PlatformMatterbridge,
@@ -81,6 +89,16 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
       }
       cameraIds.add(camera.id);
     }
+    if (this.mode === 'homekit' && (cameras.some(camera => camera.videoDoorbell) || this.config.ringServer?.enabled)) {
+      throw new Error('Video Doorbell and external ring triggers require Matter mode');
+    }
+    if (this.config.ringServer?.enabled) {
+      this.ringServer = new RingServer(this.config.ringServer, async id => {
+        const button = this.doorbells.get(id);
+        if (!button) return 'not-found';
+        return await button.triggerSwitchEvent('Single', this.log) ? 'ok' : 'unavailable';
+      });
+    }
     if (this.mode === 'homekit') {
       await this.homekit!.start(cameras);
       return;
@@ -94,6 +112,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
       await this.registerDevice(endpoint);
       this.setSelectDevice(cameraConfig.id, cameraConfig.name);
     }
+    await this.ringServer?.start();
   }
 
   private validateCameraConfig(cameraConfig: CameraConfig): CameraConfig {
@@ -107,29 +126,46 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
     if (!rtspUrl.startsWith('rtsp://') && !rtspUrl.startsWith('rtsps://')) {
       throw new Error(`Camera ${id} has an unsupported stream URL`);
     }
-    return { id, name, rtspUrl };
+    if (cameraConfig.videoDoorbell !== undefined && typeof cameraConfig.videoDoorbell !== 'boolean') {
+      throw new Error(`Camera ${id}: videoDoorbell must be a boolean`);
+    }
+    return { id, name, rtspUrl, videoDoorbell: cameraConfig.videoDoorbell ?? false };
   }
 
   private createCameraEndpoint(cameraConfig: CameraConfig): MatterbridgeEndpoint {
     const { id, name } = cameraConfig;
-    const endpoint = new MatterbridgeEndpoint([camera, bridgedNode], { id }, this.config.debug)
+    const endpoint = new MatterbridgeEndpoint([cameraConfig.videoDoorbell ? videoDoorbell : camera, bridgedNode], { id }, this.config.debug)
       .createDefaultBridgedDeviceBasicInformationClusterServer(
         name,
         id.slice(0, 32),
         0xfff1,
         'Matterbridge Camera',
-        'RTSP Camera',
+        cameraConfig.videoDoorbell ? 'RTSP Video Doorbell' : 'RTSP Camera',
       )
       .addRequiredClusterServers();
 
-    endpoint.behaviors.inject(MatterCameraAvStreamManagementServer, cameraAvStreamDefaults());
-    endpoint.behaviors.inject(MatterWebRtcTransportProviderServer);
-    endpoint.behaviors.inject(CameraRequirements.WebRtcTransportRequestorClient);
+    // Keep the camera child's ID equal to the configured stream ID: the streaming
+    // behaviors use endpoint.id to look up the existing go2rtc direct source.
+    const cameraEndpoint = cameraConfig.videoDoorbell ? endpoint.addChildDeviceType(id, camera) : endpoint;
+    cameraEndpoint.addRequiredClusterServers();
+    if (cameraConfig.videoDoorbell) {
+      const button = endpoint.addChildDeviceType(`${id}-doorbell`, doorbell);
+      button.createDefaultIdentifyClusterServer();
+      button.createDefaultMomentarySwitchClusterServer();
+      button.behaviors.inject(DoorbellRequirements.ChimeClient);
+      button.addRequiredClusterServers();
+      this.doorbells.set(id, button);
+    }
+    cameraEndpoint.behaviors.inject(MatterCameraAvStreamManagementServer, cameraAvStreamDefaults());
+    cameraEndpoint.behaviors.inject(MatterWebRtcTransportProviderServer);
+    cameraEndpoint.behaviors.inject(CameraRequirements.WebRtcTransportRequestorClient);
     return endpoint;
   }
 
   override async onShutdown(reason?: string): Promise<void> {
     this.log.info(`Stopping ${this.config.name}: ${reason ?? 'shutdown'}`);
+    await this.ringServer?.stop();
+    this.doorbells.clear();
     await this.homekit?.stop();
     await super.onShutdown(reason);
   }

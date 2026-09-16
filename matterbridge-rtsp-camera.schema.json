@@ -1,12 +1,21 @@
 {
   "type": "object",
-  "required": ["mode", "cameras"],
+  "required": [
+    "mode",
+    "cameras"
+  ],
   "properties": {
     "mode": {
       "title": "Camera protocol",
       "type": "string",
-      "enum": ["matter", "homekit"],
-      "enumNames": ["Matter (Matter 1.5)", "Apple Home (HomeKit)"],
+      "enum": [
+        "matter",
+        "homekit"
+      ],
+      "enumNames": [
+        "Matter (Matter 1.5)",
+        "Apple Home (HomeKit)"
+      ],
       "default": "matter"
     },
     "go2rtcUrl": {
@@ -26,11 +35,63 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "name", "rtspUrl"],
+        "required": [
+          "id",
+          "name",
+          "rtspUrl"
+        ],
         "properties": {
-          "id": { "title": "Stable ID", "type": "string", "minLength": 1 },
-          "name": { "title": "Name", "type": "string", "minLength": 1 },
-          "rtspUrl": { "title": "RTSP URL", "type": "string", "pattern": "^rtsps?://" }
+          "id": {
+            "title": "Stable ID",
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "title": "Name",
+            "type": "string",
+            "minLength": 1
+          },
+          "rtspUrl": {
+            "title": "RTSP URL",
+            "type": "string",
+            "pattern": "^rtsps?://"
+          },
+          "videoDoorbell": {
+            "title": "Video Doorbell (Matter only, experimental)",
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    },
+    "ringServer": {
+      "title": "External ring trigger (Matter only)",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "host": {
+          "type": "string",
+          "default": "127.0.0.1"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8787
+        },
+        "token": {
+          "type": "string",
+          "title": "Bearer token (at least 32 characters)",
+          "writeOnly": true
+        },
+        "cooldownMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000,
+          "default": 1000
         }
       }
     }

@@ -124,3 +124,8 @@ The project also depends on work from the Matterbridge, matter.js, Homebridge/HA
 ## License
 
 ISC. See [LICENSE](LICENSE).
+## Experimental Video Doorbell fork
+
+Optional Matter Video Doorbell composition and an authenticated external HTTP ring
+trigger are documented in [DOORBELL.md](DOORBELL.md). SmartThings/Samsung TV
+compatibility requires hardware testing.
