@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MatterbridgeCameraPlatform } from './module.js';
 import { type MatterbridgeEndpoint } from 'matterbridge';
-import { CameraRequirements, DoorbellRequirements } from 'matterbridge/matter/devices';
+import { CameraRequirements } from 'matterbridge/matter/devices';
+import { ChimeClient } from 'matterbridge/matter/behaviors';
 import { Switch } from 'matterbridge/matter/clusters';
 
 function testPlatform(): MatterbridgeCameraPlatform {
@@ -29,7 +30,7 @@ test('VideoDoorbell composes Camera and Doorbell; preserves RTSP stream ID', asy
   assert(camera.getDeviceTypes().some(type => type.code === 0x142));
   assert(button.getDeviceTypes().some(type => type.code === 0x148));
   assert(camera.behaviors.has(CameraRequirements.WebRtcTransportRequestorClient));
-  assert(button.behaviors.has(DoorbellRequirements.ChimeClient));
+  assert.equal(button.type.clientClusters.chime, ChimeClient);
   assert(button.hasClusterServer(Switch.id));
   assert.equal(platform.doorbells.get('urmet'), button);
   assert.equal(platform.cameraChildren.get('urmet'), camera);
