@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --no-fund --no-audit
+      - run: npm install --no-fund --no-audit --package-lock=false
       - name: Read package version
         id: package
         run: node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
