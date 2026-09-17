@@ -57,12 +57,22 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
       if (this.mode === 'homekit' && (cameras.some(c => c.videoDoorbell) || this.config.ringServer?.enabled)) throw new Error('Video Doorbell and external ring triggers require Matter mode');
       if (this.config.ringServer?.enabled) {
         this.ringServer = new RingServer(this.config.ringServer, async id => {
-          const button = this.doorbells.get(id);
-          if (!button) return 'not-found';
+          const root = this.roots.get(id);
+          const storedButton = this.doorbells.get(id);
+          if (!root || !storedButton) return 'not-found';
+          // Matter.js may replace/adopt the child endpoint object while installing the
+          // composed tree. Always resolve the live child from the registered root.
+          const button = root.getChildEndpointById('Doorbell') ?? storedButton;
+          this.doorbells.set(id, button);
           this.logEndpointDiagnostics(id, button);
-          const ok = await button.triggerSwitchEvent('Single', this.log);
-          this.log.info(`[doorbell-ring] ${id} triggerSwitchEvent=${ok}`);
-          return ok ? 'ok' : 'unavailable';
+          try {
+            const ok = await button.triggerSwitchEvent('Single', this.log);
+            this.log.info(`[doorbell-ring] ${id} triggerSwitchEvent=${ok}`);
+            return ok ? 'ok' : 'unavailable';
+          } catch (error) {
+            this.log.error(`[doorbell-ring-error] ${id}: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+            return 'unavailable';
+          }
         });
       }
       if (this.mode === 'homekit') { await this.homekit!.start(cameras); return; }
@@ -72,6 +82,13 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
         const endpoint = this.createCameraEndpoint(c);
         this.roots.set(c.id, endpoint);
         await this.registerDevice(endpoint);
+        // Refresh references after Matterbridge/Matter.js has adopted the composite tree.
+        if (c.videoDoorbell) {
+          const liveCamera = endpoint.getChildEndpointById('Camera');
+          const liveDoorbell = endpoint.getChildEndpointById('Doorbell');
+          if (liveCamera) this.cameraChildren.set(c.id, liveCamera);
+          if (liveDoorbell) this.doorbells.set(c.id, liveDoorbell);
+        }
         this.logEndpointDiagnostics(c.id, this.doorbells.get(c.id));
         this.setSelectDevice(c.id, c.name);
       }
@@ -102,13 +119,12 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
     return { id, name, rtspUrl, videoDoorbell: c.videoDoorbell ?? false };
   }
 
-  private createCameraEndpoint(c: CameraConfig): MatterbridgeEndpoint {
+  createCameraEndpoint(c: CameraConfig): MatterbridgeEndpoint {
     const { id, name } = c;
     if (c.videoDoorbell) {
-      // Chapter-16 composite devices are native Matter functionality. Marking the
-      // composed root as mode:matter prevents registerDevice() from rewriting it
-      // into a legacy Bridged Node, while retaining the official Camera/Doorbell tree.
-      const endpoint = new MatterbridgeEndpoint([videoDoorbell], { id, mode: 'matter' });
+      // Match Matterbridge 3.10.9 VideoDoorbell exactly: the root has no explicit
+      // mode, so registerDevice() installs it under the bridge aggregator.
+      const endpoint = new MatterbridgeEndpoint([videoDoorbell], { id });
       endpoint.createDefaultBasicInformationClusterServer(name, id.slice(0, 32), 0xfff1, 'Matterbridge', 0x8000, 'RTSP Video Doorbell');
       endpoint.addRequiredClusters();
       const cameraEndpoint = endpoint.addChildDeviceType('Camera', camera, {});
