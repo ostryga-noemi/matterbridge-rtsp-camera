@@ -73,29 +73,43 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
             return 'unavailable';
           }
         });
+        await this.ringServer.start();
+        this.log.info('[doorbell-startup] external ring server started');
       }
       if (this.mode === 'homekit') { await this.homekit!.start(cameras); return; }
-      await this.go2rtc!.waitUntilReady(10, 1_000);
-      for (const c of cameras) {
-        this.go2rtc.registerDirectSource(c.id, c.name, c.rtspUrl);
-        const endpoint = this.createCameraEndpoint(c);
-        this.roots.set(c.id, endpoint);
-        await this.registerDevice(endpoint);
-        if (c.videoDoorbell) {
-          const liveCamera = endpoint.getChildEndpointById('Camera');
-          const liveDoorbell = endpoint.getChildEndpointById('Doorbell');
-          if (liveCamera) this.cameraChildren.set(c.id, liveCamera);
-          if (liveDoorbell) this.doorbells.set(c.id, liveDoorbell);
-        }
-        this.logEndpointDiagnostics(c.id, this.doorbells.get(c.id));
-        this.setSelectDevice(c.id, c.name);
-      }
-      await this.ringServer?.start();
+
+      // Do not hold Matterbridge's plugin-start lifecycle while waiting for go2rtc.
+      // The HA add-on frontend gives plugin load/start only ~20 s; go2rtc may be
+      // temporarily unavailable during add-on/container restarts. RingServer is
+      // deliberately started first so the platform remains enabled and testable.
+      void this.startMatterCameras(cameras).catch(error => {
+        const detail = error instanceof Error ? `${error.name}: ${error.message}\n${error.stack ?? ''}` : String(error);
+        this.log.error(`[doorbell-camera-startup-error] ${detail}`);
+      });
     } catch (error) {
       const detail = error instanceof Error ? `${error.name}: ${error.message}\n${error.stack ?? ''}` : String(error);
       this.log.error(`[doorbell-startup-error] ${detail}`);
       throw error;
     }
+  }
+
+  private async startMatterCameras(cameras: CameraConfig[]): Promise<void> {
+    await this.go2rtc!.waitUntilReady(10, 1_000);
+    for (const c of cameras) {
+      this.go2rtc!.registerDirectSource(c.id, c.name, c.rtspUrl);
+      const endpoint = this.createCameraEndpoint(c);
+      this.roots.set(c.id, endpoint);
+      await this.registerDevice(endpoint);
+      if (c.videoDoorbell) {
+        const liveCamera = endpoint.getChildEndpointById('Camera');
+        const liveDoorbell = endpoint.getChildEndpointById('Doorbell');
+        if (liveCamera) this.cameraChildren.set(c.id, liveCamera);
+        if (liveDoorbell) this.doorbells.set(c.id, liveDoorbell);
+      }
+      this.logEndpointDiagnostics(c.id, this.doorbells.get(c.id));
+      this.setSelectDevice(c.id, c.name);
+    }
+    this.log.info('[doorbell-startup] Matter camera registration completed');
   }
 
   private logEndpointDiagnostics(id: string, button?: MatterbridgeEndpoint): void {
@@ -133,9 +147,6 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
       button.log.logName = 'Doorbell';
       button.createDefaultIdentifyClusterServer();
       button.createDefaultMomentarySwitchClusterServer();
-      // Matterbridge 3.10.9's generic required-client mapper knows the Chime
-      // cluster id but does not wire its client behavior. Wire the actual
-      // behavior explicitly, as the 3.10.9 VideoDoorbell helper does.
       button.type.clientClusters.chime ??= ChimeClient;
       button.addRequiredClusters();
       this.cameraChildren.set(id, cameraEndpoint); this.doorbells.set(id, button); return endpoint;
