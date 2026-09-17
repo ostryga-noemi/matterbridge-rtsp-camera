@@ -134,15 +134,29 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
 
   private createCameraEndpoint(cameraConfig: CameraConfig): MatterbridgeEndpoint {
     const { id, name } = cameraConfig;
-    const endpoint = new MatterbridgeEndpoint([cameraConfig.videoDoorbell ? videoDoorbell : camera, bridgedNode], { id }, this.config.debug)
-      .createDefaultBridgedDeviceBasicInformationClusterServer(
-        name,
-        id.slice(0, 32),
-        0xfff1,
-        'Matterbridge Camera',
-        cameraConfig.videoDoorbell ? 'RTSP Video Doorbell' : 'RTSP Camera',
-      )
-      .addRequiredClusterServers();
+    // A native Matter Video Doorbell is a composed Matter endpoint.  Do not mark
+    // it as a bridged node: doing so causes its Camera/Doorbell child endpoints
+    // to be numbered but left inactive after registration.
+    const endpoint = cameraConfig.videoDoorbell
+      ? new MatterbridgeEndpoint(videoDoorbell, { id, mode: 'matter' }, this.config.debug)
+          .createDefaultBasicInformationClusterServer(
+            name,
+            id.slice(0, 32),
+            0xfff1,
+            'Matterbridge Camera',
+            0x8000,
+            'RTSP Video Doorbell',
+          )
+          .addRequiredClusterServers()
+      : new MatterbridgeEndpoint([camera, bridgedNode], { id }, this.config.debug)
+          .createDefaultBridgedDeviceBasicInformationClusterServer(
+            name,
+            id.slice(0, 32),
+            0xfff1,
+            'Matterbridge Camera',
+            'RTSP Camera',
+          )
+          .addRequiredClusterServers();
 
     // Keep the camera child's ID equal to the configured stream ID: the streaming
     // behaviors use endpoint.id to look up the existing go2rtc direct source.
