@@ -9,7 +9,8 @@ import {
   type PlatformMatterbridge,
 } from 'matterbridge';
 import type { AnsiLogger } from 'matterbridge/logger';
-import { CameraRequirements, DoorbellRequirements } from 'matterbridge/matter/devices';
+import { ChimeClient } from 'matterbridge/matter/behaviors';
+import { CameraRequirements } from 'matterbridge/matter/devices';
 import { Go2RTCClient } from './streaming/Go2RTCClient.js';
 import { MatterCameraAvStreamManagementServer } from './matter/behaviors/MatterCameraAvStreamManagementServer.js';
 import { MatterWebRtcTransportProviderServer } from './matter/behaviors/MatterWebRtcTransportProviderServer.js';
@@ -60,8 +61,6 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
           const root = this.roots.get(id);
           const storedButton = this.doorbells.get(id);
           if (!root || !storedButton) return 'not-found';
-          // Matter.js may replace/adopt the child endpoint object while installing the
-          // composed tree. Always resolve the live child from the registered root.
           const button = root.getChildEndpointById('Doorbell') ?? storedButton;
           this.doorbells.set(id, button);
           this.logEndpointDiagnostics(id, button);
@@ -82,7 +81,6 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
         const endpoint = this.createCameraEndpoint(c);
         this.roots.set(c.id, endpoint);
         await this.registerDevice(endpoint);
-        // Refresh references after Matterbridge/Matter.js has adopted the composite tree.
         if (c.videoDoorbell) {
           const liveCamera = endpoint.getChildEndpointById('Camera');
           const liveDoorbell = endpoint.getChildEndpointById('Doorbell');
@@ -122,8 +120,6 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
   createCameraEndpoint(c: CameraConfig): MatterbridgeEndpoint {
     const { id, name } = c;
     if (c.videoDoorbell) {
-      // Match Matterbridge 3.10.9 VideoDoorbell exactly: the root has no explicit
-      // mode, so registerDevice() installs it under the bridge aggregator.
       const endpoint = new MatterbridgeEndpoint([videoDoorbell], { id });
       endpoint.createDefaultBasicInformationClusterServer(name, id.slice(0, 32), 0xfff1, 'Matterbridge', 0x8000, 'RTSP Video Doorbell');
       endpoint.addRequiredClusters();
@@ -137,7 +133,10 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
       button.log.logName = 'Doorbell';
       button.createDefaultIdentifyClusterServer();
       button.createDefaultMomentarySwitchClusterServer();
-      button.behaviors.require(DoorbellRequirements.ChimeClient);
+      // Matterbridge 3.10.9's generic required-client mapper knows the Chime
+      // cluster id but does not wire its client behavior. Wire the actual
+      // behavior explicitly, as the 3.10.9 VideoDoorbell helper does.
+      button.type.clientClusters.chime ??= ChimeClient;
       button.addRequiredClusters();
       this.cameraChildren.set(id, cameraEndpoint); this.doorbells.set(id, button); return endpoint;
     }
