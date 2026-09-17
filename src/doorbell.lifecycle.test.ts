@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { setupTest } from 'matterbridge/vitest-utils';
-import { addDevice, aggregator, createServerNode, createTestEnvironment, destroyTestEnvironment, flushServerNode } from 'matterbridge/vitest-utils/matter';
+import { aggregator, createServerNode, createTestEnvironment, destroyTestEnvironment, flushServerNode } from 'matterbridge/vitest-utils/matter';
 import { MatterbridgeCameraPlatform } from './module.js';
 import type { MatterbridgeEndpoint } from 'matterbridge';
 
@@ -31,7 +31,12 @@ describe('RTSP VideoDoorbell real Matter lifecycle', () => {
   it('installs the composite endpoint and can emit a Single doorbell event', async () => {
     const platform = testPlatform();
     const root: MatterbridgeEndpoint = platform.createCameraEndpoint({ id: 'urmet-test', name: 'Urmet Test', rtspUrl: 'rtsp://example.invalid/live', videoDoorbell: true });
-    expect(await addDevice(aggregator, root)).toBe(true);
+    try {
+      await aggregator.add(root);
+    } catch (error) {
+      console.error('[doorbell-lifecycle-add-error]', error instanceof Error ? error.stack ?? error.message : error);
+      throw error;
+    }
     const button = root.getChildEndpointById('Doorbell');
     expect(button).toBeDefined();
     expect(root.lifecycle.isInstalled).toBe(true);
