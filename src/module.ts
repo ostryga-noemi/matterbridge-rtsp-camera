@@ -1,15 +1,14 @@
 import {
   bridgedNode,
   camera,
-  doorbell,
-  videoDoorbell,
   MatterbridgeDynamicPlatform,
   MatterbridgeEndpoint,
   type PlatformConfig,
   type PlatformMatterbridge,
 } from 'matterbridge';
+import { VideoDoorbell } from 'matterbridge/devices';
 import type { AnsiLogger } from 'matterbridge/logger';
-import { CameraRequirements, DoorbellRequirements } from 'matterbridge/matter/devices';
+import { CameraRequirements } from 'matterbridge/matter/devices';
 import { Go2RTCClient } from './streaming/Go2RTCClient.js';
 import { MatterCameraAvStreamManagementServer } from './matter/behaviors/MatterCameraAvStreamManagementServer.js';
 import { MatterWebRtcTransportProviderServer } from './matter/behaviors/MatterWebRtcTransportProviderServer.js';
@@ -51,6 +50,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
   private ringServer?: RingServer;
   private readonly doorbells = new Map<string, MatterbridgeEndpoint>();
   private readonly roots = new Map<string, MatterbridgeEndpoint>();
+  private readonly cameraChildren = new Map<string, MatterbridgeEndpoint>();
 
   constructor(
     matterbridge: PlatformMatterbridge,
@@ -85,9 +85,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
     const cameras = (this.config.cameras ?? []).map(cameraConfig => this.validateCameraConfig(cameraConfig));
     const cameraIds = new Set<string>();
     for (const camera of cameras) {
-      if (cameraIds.has(camera.id)) {
-        throw new Error(`Camera id ${camera.id} is configured more than once`);
-      }
+      if (cameraIds.has(camera.id)) throw new Error(`Camera id ${camera.id} is configured more than once`);
       cameraIds.add(camera.id);
     }
     if (this.mode === 'homekit' && (cameras.some(camera => camera.videoDoorbell) || this.config.ringServer?.enabled)) {
@@ -121,7 +119,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
 
   private logEndpointDiagnostics(id: string, button?: MatterbridgeEndpoint): void {
     const root = this.roots.get(id);
-    const cameraChild = root?.getChildEndpointById(id);
+    const cameraChild = this.cameraChildren.get(id);
     const describe = (endpoint?: MatterbridgeEndpoint): string => {
       if (!endpoint) return 'missing';
       const ep = endpoint as MatterbridgeEndpoint & { lifecycle?: { isReady?: boolean; isInstalled?: boolean; isActive?: boolean; isDestroyed?: boolean } };
@@ -135,55 +133,48 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
     const id = cameraConfig.id.trim();
     const name = cameraConfig.name.trim();
     const rtspUrl = cameraConfig.rtspUrl.trim();
-
-    if (!id || !name || !rtspUrl) {
-      throw new Error('Each camera requires non-empty id, name, and rtspUrl values');
-    }
-    if (!rtspUrl.startsWith('rtsp://') && !rtspUrl.startsWith('rtsps://')) {
-      throw new Error(`Camera ${id} has an unsupported stream URL`);
-    }
-    if (cameraConfig.videoDoorbell !== undefined && typeof cameraConfig.videoDoorbell !== 'boolean') {
-      throw new Error(`Camera ${id}: videoDoorbell must be a boolean`);
-    }
+    if (!id || !name || !rtspUrl) throw new Error('Each camera requires non-empty id, name, and rtspUrl values');
+    if (!rtspUrl.startsWith('rtsp://') && !rtspUrl.startsWith('rtsps://')) throw new Error(`Camera ${id} has an unsupported stream URL`);
+    if (cameraConfig.videoDoorbell !== undefined && typeof cameraConfig.videoDoorbell !== 'boolean') throw new Error(`Camera ${id}: videoDoorbell must be a boolean`);
     return { id, name, rtspUrl, videoDoorbell: cameraConfig.videoDoorbell ?? false };
   }
 
   private createCameraEndpoint(cameraConfig: CameraConfig): MatterbridgeEndpoint {
     const { id, name } = cameraConfig;
-    const endpoint = cameraConfig.videoDoorbell
-      ? new MatterbridgeEndpoint(videoDoorbell, { id }, this.config.debug)
-          .createDefaultBasicInformationClusterServer(
-            name,
-            id.slice(0, 32),
-            0xfff1,
-            'Matterbridge Camera',
-            0x8000,
-            'RTSP Video Doorbell',
-          )
-          .addRequiredClusterServers()
-      : new MatterbridgeEndpoint([camera, bridgedNode], { id }, this.config.debug)
-          .createDefaultBridgedDeviceBasicInformationClusterServer(
-            name,
-            id.slice(0, 32),
-            0xfff1,
-            'Matterbridge Camera',
-            'RTSP Camera',
-          )
-          .addRequiredClusterServers();
-
-    const cameraEndpoint = cameraConfig.videoDoorbell ? endpoint.addChildDeviceType(id, camera) : endpoint;
-    cameraEndpoint.addRequiredClusterServers();
     if (cameraConfig.videoDoorbell) {
-      const button = endpoint.addChildDeviceType(`${id}-doorbell`, doorbell);
-      button.createDefaultIdentifyClusterServer();
-      button.createDefaultMomentarySwitchClusterServer();
-      button.behaviors.inject(DoorbellRequirements.ChimeClient);
-      button.addRequiredClusterServers();
+      // Use Matterbridge's native composite implementation so the root and both
+      // mandatory children participate in the normal endpoint lifecycle.
+      const endpoint = new VideoDoorbell(name, id.slice(0, 32), {
+        id,
+        powerSourceType: 'None',
+      });
+      const cameraEndpoint = endpoint.getChildEndpointById('Camera');
+      const button = endpoint.getChildEndpointById('Doorbell');
+      if (!cameraEndpoint || !button) throw new Error(`Camera ${id}: native VideoDoorbell children were not created`);
+
+      // Replace the native streaming servers with the plugin's go2rtc-backed
+      // implementations while retaining the native composite endpoint layout.
+      cameraEndpoint.behaviors.inject(MatterCameraAvStreamManagementServer, cameraAvStreamDefaults());
+      cameraEndpoint.behaviors.inject(MatterWebRtcTransportProviderServer);
+      cameraEndpoint.behaviors.inject(CameraRequirements.WebRtcTransportRequestorClient);
+      this.cameraChildren.set(id, cameraEndpoint);
       this.doorbells.set(id, button);
+      return endpoint;
     }
-    cameraEndpoint.behaviors.inject(MatterCameraAvStreamManagementServer, cameraAvStreamDefaults());
-    cameraEndpoint.behaviors.inject(MatterWebRtcTransportProviderServer);
-    cameraEndpoint.behaviors.inject(CameraRequirements.WebRtcTransportRequestorClient);
+
+    const endpoint = new MatterbridgeEndpoint([camera, bridgedNode], { id }, this.config.debug)
+      .createDefaultBridgedDeviceBasicInformationClusterServer(
+        name,
+        id.slice(0, 32),
+        0xfff1,
+        'Matterbridge Camera',
+        'RTSP Camera',
+      )
+      .addRequiredClusterServers();
+    endpoint.behaviors.inject(MatterCameraAvStreamManagementServer, cameraAvStreamDefaults());
+    endpoint.behaviors.inject(MatterWebRtcTransportProviderServer);
+    endpoint.behaviors.inject(CameraRequirements.WebRtcTransportRequestorClient);
+    this.cameraChildren.set(id, endpoint);
     return endpoint;
   }
 
@@ -192,6 +183,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
     await this.ringServer?.stop();
     this.doorbells.clear();
     this.roots.clear();
+    this.cameraChildren.clear();
     await this.homekit?.stop();
     await super.onShutdown(reason);
   }
