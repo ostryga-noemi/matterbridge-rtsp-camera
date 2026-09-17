@@ -30,6 +30,6 @@ jobs:
           mv matterbridge-rtsp-camera-*.tgz artifact/
       - uses: actions/upload-artifact@v4
         with:
-          name: matterbridge-rtsp-camera-0.3.1-doorbell.3
+          name: matterbridge-rtsp-camera-0.3.1-doorbell.4
           path: artifact/*.tgz
           if-no-files-found: error
