@@ -1,14 +1,15 @@
 import {
   bridgedNode,
   camera,
+  doorbell,
+  videoDoorbell,
   MatterbridgeDynamicPlatform,
   MatterbridgeEndpoint,
   type PlatformConfig,
   type PlatformMatterbridge,
 } from 'matterbridge';
-import { VideoDoorbell } from 'matterbridge/devices';
 import type { AnsiLogger } from 'matterbridge/logger';
-import { CameraRequirements } from 'matterbridge/matter/devices';
+import { CameraRequirements, DoorbellRequirements } from 'matterbridge/matter/devices';
 import { Go2RTCClient } from './streaming/Go2RTCClient.js';
 import { MatterCameraAvStreamManagementServer } from './matter/behaviors/MatterCameraAvStreamManagementServer.js';
 import { MatterWebRtcTransportProviderServer } from './matter/behaviors/MatterWebRtcTransportProviderServer.js';
@@ -49,7 +50,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
 
   constructor(matterbridge: PlatformMatterbridge, log: AnsiLogger, override config: CameraPlatformConfig) {
     super(matterbridge, log, config);
-    if (!this.verifyMatterbridgeVersion('3.10.4')) throw new Error('matterbridge-rtsp-camera requires Matterbridge 3.10.4 or newer');
+    if (!this.verifyMatterbridgeVersion('3.10.9')) throw new Error('matterbridge-rtsp-camera doorbell build requires Matterbridge 3.10.9 or newer');
     this.mode = config.mode ?? 'matter';
     if (this.mode !== 'matter' && this.mode !== 'homekit') throw new Error('mode must be either matter or homekit');
     if (this.mode === 'matter') {
@@ -126,18 +127,24 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
   private createCameraEndpoint(cameraConfig: CameraConfig): MatterbridgeEndpoint {
     const { id, name } = cameraConfig;
     if (cameraConfig.videoDoorbell) {
-      /*
-       * VideoDoorbell already creates CameraAvStreamManagement,
-       * WebRtcTransportProvider and WebRtcTransportRequestor on its Camera child.
-       * doorbell.6 injected a second copy of those behaviors, which can put the
-       * plugin into error state before Matterbridge can register the device.
-       * Keep the native composite intact here; first establish a healthy,
-       * active VideoDoorbell/Camera/Doorbell lifecycle.
-       */
-      const endpoint = new VideoDoorbell(name, id.slice(0, 32), { id, powerSourceType: 'None' });
-      const cameraEndpoint = endpoint.getChildEndpointById('Camera');
-      const button = endpoint.getChildEndpointById('Doorbell');
-      if (!cameraEndpoint || !button) throw new Error(`Camera ${id}: native VideoDoorbell children were not created`);
+      // Matterbridge 3.10.9 contains the VideoDoorbell implementation but does not
+      // export the VideoDoorbell class from matterbridge/devices. Compose the same
+      // public device types here while retaining our custom RTSP camera behaviors.
+      const endpoint = new MatterbridgeEndpoint([videoDoorbell], { id }, this.config.debug)
+        .createDefaultBasicInformationClusterServer(name, id.slice(0, 32), 0xfff1, 'Matterbridge', 0x8000, 'RTSP Video Doorbell')
+        .addRequiredClusterServers();
+
+      const cameraEndpoint = endpoint.addChildDeviceType(id, camera, {});
+      cameraEndpoint.behaviors.inject(MatterCameraAvStreamManagementServer, cameraAvStreamDefaults());
+      cameraEndpoint.behaviors.inject(MatterWebRtcTransportProviderServer);
+      cameraEndpoint.behaviors.inject(CameraRequirements.WebRtcTransportRequestorClient);
+      cameraEndpoint.addRequiredClusterServers();
+
+      const button = endpoint.addChildDeviceType(`${id}-doorbell`, doorbell, {});
+      button.createDefaultMomentarySwitchClusterServer();
+      button.behaviors.require(DoorbellRequirements.ChimeClient);
+      button.addRequiredClusterServers();
+
       this.cameraChildren.set(id, cameraEndpoint);
       this.doorbells.set(id, button);
       return endpoint;
