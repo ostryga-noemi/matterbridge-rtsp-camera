@@ -129,3 +129,12 @@ This is an experimental implementation, not a promise of a working TV popup.
 - No physical RTSP camera, Matter controller or Samsung television was tested.
 - The GitHub connector exposed file/branch writes but no fork-creation action.
   This archive is prepared locally; no remote fork or pull request was created.
+
+## Home Assistant package persistence
+
+This experimental fork sets `private: true` in package.json so Matterbridge can
+restore it from the uploaded tarball instead of npm when the add-on container
+is recreated. After uploading over an already running upstream plugin, restart
+only the camera plugin from its Actions row first. Confirm version
+`0.3.1-doorbell.2` before restarting the entire add-on; this saves the private
+package metadata used for recovery.
