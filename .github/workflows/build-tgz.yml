@@ -25,6 +25,8 @@ jobs:
       - name: Read package version
         id: package
         run: node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
+      - name: Run full tests including Matter lifecycle/ring
+        run: npm test
       - name: Build installable package
         run: |
           npm run build
