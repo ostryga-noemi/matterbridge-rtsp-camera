@@ -16,7 +16,7 @@ import { MatterCameraAvStreamManagementServer } from './matter/behaviors/MatterC
 import { MatterWebRtcTransportProviderServer } from './matter/behaviors/MatterWebRtcTransportProviderServer.js';
 import { streamContext } from './matter/behaviors/streamContext.js';
 import { cameraAvStreamDefaults } from './matter/devices/cameraAvStreamDefaults.js';
-import { HomeKitCameraPublisher, homeKitStoragePath } from './HomeKitCameraPublisher.js';
+import type { HomeKitCameraPublisher } from './HomeKitCameraPublisher.js';
 import { RingServer, type RingServerConfig } from './RingServer.js';
 
 export type CameraProtocol = 'matter' | 'homekit';
@@ -45,7 +45,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
       if (!config.go2rtcUrl?.trim()) throw new Error('go2rtcUrl is required in Matter mode');
       this.go2rtc = new Go2RTCClient(config.go2rtcUrl);
       streamContext.go2rtc = this.go2rtc;
-    } else this.homekit = new HomeKitCameraPublisher(homeKitStoragePath(matterbridge.homeDirectory), config.homekitPin ?? '031-45-154', log);
+    }
   }
 
   override async onStart(reason?: string): Promise<void> {
@@ -76,12 +76,12 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
         await this.ringServer.start();
         this.log.info('[doorbell-startup] external ring server started');
       }
-      if (this.mode === 'homekit') { await this.homekit!.start(cameras); return; }
-
-      // Do not hold Matterbridge's plugin-start lifecycle while waiting for go2rtc.
-      // The HA add-on frontend gives plugin load/start only ~20 s; go2rtc may be
-      // temporarily unavailable during add-on/container restarts. RingServer is
-      // deliberately started first so the platform remains enabled and testable.
+      if (this.mode === 'homekit') {
+        const { HomeKitCameraPublisher, homeKitStoragePath } = await import('./HomeKitCameraPublisher.js');
+        this.homekit = new HomeKitCameraPublisher(homeKitStoragePath(this.matterbridge.homeDirectory), this.config.homekitPin ?? '031-45-154', this.log);
+        await this.homekit.start(cameras);
+        return;
+      }
       void this.startMatterCameras(cameras).catch(error => {
         const detail = error instanceof Error ? `${error.name}: ${error.message}\n${error.stack ?? ''}` : String(error);
         this.log.error(`[doorbell-camera-startup-error] ${detail}`);
