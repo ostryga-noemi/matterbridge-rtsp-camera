@@ -24,7 +24,7 @@ jobs:
       - run: npm ci --no-fund --no-audit
       - name: Read package version
         id: package
-        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
       - name: Build installable package
         run: |
           npm run build
