@@ -1,16 +1,38 @@
 {
   "name": "matterbridge-rtsp-camera",
-  "version": "0.3.1-doorbell.13",
+  "version": "0.3.1-doorbell.14",
   "description": "Matterbridge plugin for RTSP cameras using Matter or native HomeKit",
   "author": "Joel Kirchmeyer",
-  "maintainers": ["Joel Kirchmeyer"],
-  "contributors": [{"name":"Patrick Teixeira","url":"https://github.com/patricktd"},{"name":"Koryx"}],
+  "maintainers": [
+    "Joel Kirchmeyer"
+  ],
+  "contributors": [
+    {
+      "name": "Patrick Teixeira",
+      "url": "https://github.com/patricktd"
+    },
+    {
+      "name": "Koryx"
+    }
+  ],
   "homepage": "https://github.com/kirchmeyer/matterbridge-rtsp-camera#readme",
-  "bugs": {"url":"https://github.com/kirchmeyer/matterbridge-rtsp-camera/issues"},
-  "repository": {"type":"git","url":"git+https://github.com/kirchmeyer/matterbridge-rtsp-camera.git"},
+  "bugs": {
+    "url": "https://github.com/kirchmeyer/matterbridge-rtsp-camera/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kirchmeyer/matterbridge-rtsp-camera.git"
+  },
   "type": "module",
   "main": "dist/module.js",
-  "files": ["CHANGELOG.md","NOTICE.md","dist","matterbridge-rtsp-camera.config.json","matterbridge-rtsp-camera.schema.json","DOORBELL.md"],
+  "files": [
+    "CHANGELOG.md",
+    "NOTICE.md",
+    "dist",
+    "matterbridge-rtsp-camera.config.json",
+    "matterbridge-rtsp-camera.schema.json",
+    "DOORBELL.md"
+  ],
   "scripts": {
     "build": "node scripts/build.mjs",
     "clean": "rm -rf dist",
@@ -18,10 +40,34 @@
     "test": "npm run build && npm run test:import && node --import tsx src/streaming/Go2RTCClient.directSource.test.ts && node --import tsx --test src/RingServer.test.ts src/doorbell.test.ts && npx vitest run --globals src/doorbell.lifecycle.test.ts",
     "prepack": "npm test"
   },
-  "engines": {"node": ">=22.13.0 <23 || >=24 <25"},
-  "devDependencies": {"@matterbridge/vitest-utils":"3.10.9","@types/node":"^22.0.0","esbuild":"^0.28.0","matterbridge":"3.10.9","tsx":"^4.19.2","typescript":"^5.7.3","vitest":"5.0.0"},
-  "keywords": ["matterbridge-plugin","matter","homekit","camera","rtsp","go2rtc","webrtc","ffmpeg","matter-camera","smart-home"],
+  "engines": {
+    "node": ">=22.13.0 <23 || >=24 <25"
+  },
+  "devDependencies": {
+    "@matterbridge/vitest-utils": "3.10.9",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.0",
+    "matterbridge": "3.10.9",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "5.0.0"
+  },
+  "keywords": [
+    "matterbridge-plugin",
+    "matter",
+    "homekit",
+    "camera",
+    "rtsp",
+    "go2rtc",
+    "webrtc",
+    "ffmpeg",
+    "matter-camera",
+    "smart-home"
+  ],
   "license": "ISC",
-  "dependencies": {"@homebridge/hap-nodejs":"^2.2.0","ffmpeg-for-homebridge":"^2.2.2"},
+  "dependencies": {
+    "@homebridge/hap-nodejs": "^2.2.0",
+    "ffmpeg-for-homebridge": "^2.2.2"
+  },
   "private": true
 }

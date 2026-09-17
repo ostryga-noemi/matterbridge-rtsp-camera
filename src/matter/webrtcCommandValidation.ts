@@ -1,19 +1,8 @@
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { resolveMatterEsm } from './sdkImport.js';
 
-const require = createRequire(import.meta.url);
-let matterSdkRequire = require;
-try {
-    matterSdkRequire = createRequire(import.meta.resolve('matterbridge/matter'));
-} catch {
-    // Standalone MatterCameras resolves the SDK from its own dependency tree.
-}
-const matterNodeEntry = matterSdkRequire.resolve('@matter/node');
-const supervisionConfigPath = join(
-    dirname(matterNodeEntry),
-    '../esm/behavior/supervision/SupervisionConfig.js',
+const { GlobalConfig, commandSupervisionConfigs } = await import(
+    resolveMatterEsm('@matter/node', 'dist/esm/behavior/supervision/SupervisionConfig.js')
 );
-const { GlobalConfig, commandSupervisionConfigs } = matterSdkRequire(supervisionConfigPath);
 
 const WEBRTC_COMMANDS = ['provideOffer', 'solicitOffer', 'provideAnswer', 'provideIceCandidates'];
 

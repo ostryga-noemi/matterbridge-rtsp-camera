@@ -1,8 +1,7 @@
 import { CameraRequirements } from '@matter/main/devices/camera';
 import { ClientNode, ServerNode } from '@matter/main';
 import { Logger } from '@matter/general';
-import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { resolveMatterEsm } from '../sdkImport.js';
 import { WebRtcTransportProvider } from '@matter/types/clusters/web-rtc-transport-provider';
 import { WebRtcTransportRequestor } from '@matter/types/clusters/web-rtc-transport-requestor';
 import { WebRtcTransportDefinitions } from '@matter/types/clusters/web-rtc-transport-definitions';
@@ -25,15 +24,7 @@ import {
 import { buildSolicitOfferResponse } from './solicitOfferHandler.js';
 import { logHubEndpointAdoption } from '../hubAdoptionLog.js';
 
-const require = createRequire(import.meta.url);
-let matterSdkRequire = require;
-try {
-    matterSdkRequire = createRequire(import.meta.resolve('matterbridge/matter'));
-} catch {
-    // Standalone MatterCameras resolves the SDK from its own dependency tree.
-}
-const matterProtocolEntry = matterSdkRequire.resolve('@matter/protocol');
-const { hasRemoteActor, Invoke, PeerAddress } = matterSdkRequire(matterProtocolEntry) as typeof import('@matter/protocol');
+const { hasRemoteActor, Invoke, PeerAddress } = await import(resolveMatterEsm('@matter/protocol')) as typeof import('@matter/protocol');
 
 const logger = Logger.get('MatterWebRtc');
 
