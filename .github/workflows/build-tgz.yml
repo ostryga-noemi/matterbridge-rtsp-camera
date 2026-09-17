@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - feature/video-doorbell-external-ring
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
