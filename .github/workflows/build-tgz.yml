@@ -1,0 +1,32 @@
+name: Build TGZ
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/video-doorbell-external-ring
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - name: Build installable package
+        run: |
+          npm run build
+          npm pack --ignore-scripts
+          mkdir -p artifact
+          mv matterbridge-rtsp-camera-*.tgz artifact/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matterbridge-rtsp-camera-0.3.1-doorbell.3
+          path: artifact/*.tgz
+          if-no-files-found: error
