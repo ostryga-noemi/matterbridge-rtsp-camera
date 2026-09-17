@@ -6,7 +6,11 @@ import { CameraRequirements, DoorbellRequirements } from 'matterbridge/matter/de
 import { Switch } from 'matterbridge/matter/clusters';
 
 function testPlatform(): MatterbridgeCameraPlatform {
-  const platform = Object.create(MatterbridgeCameraPlatform.prototype);
+  const platform = Object.create(MatterbridgeCameraPlatform.prototype) as MatterbridgeCameraPlatform & {
+    doorbells: Map<string, MatterbridgeEndpoint>;
+    roots: Map<string, MatterbridgeEndpoint>;
+    cameraChildren: Map<string, MatterbridgeEndpoint>;
+  };
   platform.config = { debug: false };
   platform.doorbells = new Map();
   platform.roots = new Map();
@@ -18,8 +22,10 @@ test('VideoDoorbell composes Camera and Doorbell; preserves RTSP stream ID', asy
   const platform = testPlatform();
   const root: MatterbridgeEndpoint = platform.createCameraEndpoint({ id: 'urmet', name: 'Urmet', rtspUrl: 'rtsp://example.invalid/live', videoDoorbell: true });
   assert(root.getDeviceTypes().some(type => type.code === 0x143));
-  const camera = root.getChildEndpointById('urmet')!;
-  const button = root.getChildEndpointById('urmet-doorbell')!;
+  const camera = root.getChildEndpointById('Camera');
+  const button = root.getChildEndpointById('Doorbell');
+  assert(camera, 'Camera child must exist');
+  assert(button, 'Doorbell child must exist');
   assert(camera.getDeviceTypes().some(type => type.code === 0x142));
   assert(button.getDeviceTypes().some(type => type.code === 0x148));
   assert(camera.behaviors.has(CameraRequirements.WebRtcTransportRequestorClient));
