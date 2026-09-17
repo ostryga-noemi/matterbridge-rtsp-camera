@@ -22,6 +22,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --no-fund --no-audit
+      - name: Read package version
+        id: package
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
       - name: Build installable package
         run: |
           npm run build
@@ -30,6 +33,6 @@ jobs:
           mv matterbridge-rtsp-camera-*.tgz artifact/
       - uses: actions/upload-artifact@v4
         with:
-          name: matterbridge-rtsp-camera-0.3.1-doorbell.4
+          name: matterbridge-rtsp-camera-${{ steps.package.outputs.version }}
           path: artifact/*.tgz
           if-no-files-found: error
