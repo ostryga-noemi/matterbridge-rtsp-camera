@@ -18,11 +18,14 @@ function matterbridgeSdkPath(path) {
 await rm('dist', { recursive: true, force: true });
 await build({
   entryPoints: ['src/module.ts'],
-  outfile: 'dist/module.js',
+  outdir: 'dist',
+  entryNames: 'module',
+  chunkNames: 'chunks/[name]-[hash]',
   bundle: true,
+  splitting: true,
   platform: 'node',
   format: 'esm',
-  target: 'node22',
+  target: 'node24',
   plugins: [{
     name: 'matterbridge-sdk',
     setup(build) {

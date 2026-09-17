@@ -1,0 +1,40 @@
+name: Build TGZ
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/video-doorbell-external-ring
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --no-fund --no-audit --package-lock=false
+      - name: Read package version
+        id: package
+        run: node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
+      - name: Run full tests including Matter lifecycle/ring
+        run: npm test
+      - name: Build installable package
+        run: |
+          npm run build
+          npm pack --ignore-scripts
+          mkdir -p artifact
+          mv matterbridge-rtsp-camera-*.tgz artifact/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matterbridge-rtsp-camera-${{ steps.package.outputs.version }}
+          path: artifact/*.tgz
+          if-no-files-found: error
