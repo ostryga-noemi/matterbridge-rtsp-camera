@@ -19,21 +19,8 @@ import { HomeKitCameraPublisher, homeKitStoragePath } from './HomeKitCameraPubli
 import { RingServer, type RingServerConfig } from './RingServer.js';
 
 export type CameraProtocol = 'matter' | 'homekit';
-
-export interface CameraConfig {
-  id: string;
-  name: string;
-  rtspUrl: string;
-  videoDoorbell?: boolean;
-}
-
-export interface CameraPlatformConfig extends PlatformConfig {
-  mode?: CameraProtocol;
-  go2rtcUrl?: string;
-  homekitPin?: string;
-  ringServer?: RingServerConfig;
-  cameras: CameraConfig[];
-}
+export interface CameraConfig { id: string; name: string; rtspUrl: string; videoDoorbell?: boolean; }
+export interface CameraPlatformConfig extends PlatformConfig { mode?: CameraProtocol; go2rtcUrl?: string; homekitPin?: string; ringServer?: RingServerConfig; cameras: CameraConfig[]; }
 
 export default function initializePlugin(matterbridge: PlatformMatterbridge, log: AnsiLogger, config: PlatformConfig): MatterbridgeCameraPlatform {
   return new MatterbridgeCameraPlatform(matterbridge, log, config as CameraPlatformConfig);
@@ -57,42 +44,36 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
       if (!config.go2rtcUrl?.trim()) throw new Error('go2rtcUrl is required in Matter mode');
       this.go2rtc = new Go2RTCClient(config.go2rtcUrl);
       streamContext.go2rtc = this.go2rtc;
-    } else {
-      this.homekit = new HomeKitCameraPublisher(homeKitStoragePath(matterbridge.homeDirectory), config.homekitPin ?? '031-45-154', log);
-    }
+    } else this.homekit = new HomeKitCameraPublisher(homeKitStoragePath(matterbridge.homeDirectory), config.homekitPin ?? '031-45-154', log);
   }
 
   override async onStart(reason?: string): Promise<void> {
     try {
       await this.ready;
       this.log.info(`Starting ${this.config.name}: ${reason ?? 'startup'}`);
-      const cameras = (this.config.cameras ?? []).map(cameraConfig => this.validateCameraConfig(cameraConfig));
+      const cameras = (this.config.cameras ?? []).map(c => this.validateCameraConfig(c));
       const cameraIds = new Set<string>();
-      for (const cameraConfig of cameras) {
-        if (cameraIds.has(cameraConfig.id)) throw new Error(`Camera id ${cameraConfig.id} is configured more than once`);
-        cameraIds.add(cameraConfig.id);
-      }
-      if (this.mode === 'homekit' && (cameras.some(cameraConfig => cameraConfig.videoDoorbell) || this.config.ringServer?.enabled)) throw new Error('Video Doorbell and external ring triggers require Matter mode');
+      for (const c of cameras) { if (cameraIds.has(c.id)) throw new Error(`Camera id ${c.id} is configured more than once`); cameraIds.add(c.id); }
+      if (this.mode === 'homekit' && (cameras.some(c => c.videoDoorbell) || this.config.ringServer?.enabled)) throw new Error('Video Doorbell and external ring triggers require Matter mode');
       if (this.config.ringServer?.enabled) {
         this.ringServer = new RingServer(this.config.ringServer, async id => {
           const button = this.doorbells.get(id);
           if (!button) return 'not-found';
           this.logEndpointDiagnostics(id, button);
-          return await button.triggerSwitchEvent('Single', this.log) ? 'ok' : 'unavailable';
+          const ok = await button.triggerSwitchEvent('Single', this.log);
+          this.log.info(`[doorbell-ring] ${id} triggerSwitchEvent=${ok}`);
+          return ok ? 'ok' : 'unavailable';
         });
       }
-      if (this.mode === 'homekit') {
-        await this.homekit!.start(cameras);
-        return;
-      }
+      if (this.mode === 'homekit') { await this.homekit!.start(cameras); return; }
       await this.go2rtc!.waitUntilReady(10, 1_000);
-      for (const cameraConfig of cameras) {
-        this.go2rtc.registerDirectSource(cameraConfig.id, cameraConfig.name, cameraConfig.rtspUrl);
-        const endpoint = this.createCameraEndpoint(cameraConfig);
-        this.roots.set(cameraConfig.id, endpoint);
+      for (const c of cameras) {
+        this.go2rtc.registerDirectSource(c.id, c.name, c.rtspUrl);
+        const endpoint = this.createCameraEndpoint(c);
+        this.roots.set(c.id, endpoint);
         await this.registerDevice(endpoint);
-        this.logEndpointDiagnostics(cameraConfig.id, this.doorbells.get(cameraConfig.id));
-        this.setSelectDevice(cameraConfig.id, cameraConfig.name);
+        this.logEndpointDiagnostics(c.id, this.doorbells.get(c.id));
+        this.setSelectDevice(c.id, c.name);
       }
       await this.ringServer?.start();
     } catch (error) {
@@ -103,74 +84,57 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
   }
 
   private logEndpointDiagnostics(id: string, button?: MatterbridgeEndpoint): void {
-    const root = this.roots.get(id);
-    const cameraChild = this.cameraChildren.get(id);
+    const root = this.roots.get(id); const cameraChild = this.cameraChildren.get(id);
     const describe = (endpoint?: MatterbridgeEndpoint): string => {
       if (!endpoint) return 'missing';
       const ep = endpoint as MatterbridgeEndpoint & { lifecycle?: { isReady?: boolean; isInstalled?: boolean; isActive?: boolean; isDestroyed?: boolean } };
       const lifecycle = ep.lifecycle;
-      return `id=${endpoint.maybeId ?? endpoint.id} number=${endpoint.maybeNumber ?? 'none'} lifecycle=${lifecycle ? JSON.stringify({ ready: lifecycle.isReady, installed: lifecycle.isInstalled, active: lifecycle.isActive, destroyed: lifecycle.isDestroyed }) : 'unavailable'}`;
+      return `id=${endpoint.maybeId ?? endpoint.id} number=${endpoint.maybeNumber ?? 'none'} mode=${endpoint.mode ?? 'default'} lifecycle=${lifecycle ? JSON.stringify({ ready: lifecycle.isReady, installed: lifecycle.isInstalled, active: lifecycle.isActive, destroyed: lifecycle.isDestroyed }) : 'unavailable'}`;
     };
     this.log.warn(`[doorbell-diag] ${id} root{${describe(root)}} camera{${describe(cameraChild)}} doorbell{${describe(button)}}`);
   }
 
-  private validateCameraConfig(cameraConfig: CameraConfig): CameraConfig {
-    const id = cameraConfig.id.trim();
-    const name = cameraConfig.name.trim();
-    const rtspUrl = cameraConfig.rtspUrl.trim();
+  private validateCameraConfig(c: CameraConfig): CameraConfig {
+    const id = c.id.trim(), name = c.name.trim(), rtspUrl = c.rtspUrl.trim();
     if (!id || !name || !rtspUrl) throw new Error('Each camera requires non-empty id, name, and rtspUrl values');
     if (!rtspUrl.startsWith('rtsp://') && !rtspUrl.startsWith('rtsps://')) throw new Error(`Camera ${id} has an unsupported stream URL`);
-    if (cameraConfig.videoDoorbell !== undefined && typeof cameraConfig.videoDoorbell !== 'boolean') throw new Error(`Camera ${id}: videoDoorbell must be a boolean`);
-    return { id, name, rtspUrl, videoDoorbell: cameraConfig.videoDoorbell ?? false };
+    if (c.videoDoorbell !== undefined && typeof c.videoDoorbell !== 'boolean') throw new Error(`Camera ${id}: videoDoorbell must be a boolean`);
+    return { id, name, rtspUrl, videoDoorbell: c.videoDoorbell ?? false };
   }
 
-  private createCameraEndpoint(cameraConfig: CameraConfig): MatterbridgeEndpoint {
-    const { id, name } = cameraConfig;
-    if (cameraConfig.videoDoorbell) {
-      // Backport the public composition used by Matterbridge's VideoDoorbell class.
-      // 3.10.9 exposes the chapter-16 device types, but not the VideoDoorbell class itself.
-      // Keep the official child identities (Camera / Doorbell) and use addRequiredClusters(),
-      // which is what the upstream implementation uses for composed endpoints.
-      const endpoint = new MatterbridgeEndpoint([videoDoorbell], { id });
+  private createCameraEndpoint(c: CameraConfig): MatterbridgeEndpoint {
+    const { id, name } = c;
+    if (c.videoDoorbell) {
+      // Chapter-16 composite devices are native Matter functionality. Marking the
+      // composed root as mode:matter prevents registerDevice() from rewriting it
+      // into a legacy Bridged Node, while retaining the official Camera/Doorbell tree.
+      const endpoint = new MatterbridgeEndpoint([videoDoorbell], { id, mode: 'matter' });
       endpoint.createDefaultBasicInformationClusterServer(name, id.slice(0, 32), 0xfff1, 'Matterbridge', 0x8000, 'RTSP Video Doorbell');
       endpoint.addRequiredClusters();
-
       const cameraEndpoint = endpoint.addChildDeviceType('Camera', camera, {});
       cameraEndpoint.log.logName = 'Camera';
       cameraEndpoint.behaviors.inject(MatterCameraAvStreamManagementServer, cameraAvStreamDefaults());
       cameraEndpoint.behaviors.inject(MatterWebRtcTransportProviderServer);
       cameraEndpoint.behaviors.inject(CameraRequirements.WebRtcTransportRequestorClient);
       cameraEndpoint.addRequiredClusters();
-
       const button = endpoint.addChildDeviceType('Doorbell', doorbell, {});
       button.log.logName = 'Doorbell';
       button.createDefaultIdentifyClusterServer();
       button.createDefaultMomentarySwitchClusterServer();
       button.behaviors.require(DoorbellRequirements.ChimeClient);
       button.addRequiredClusters();
-
-      this.cameraChildren.set(id, cameraEndpoint);
-      this.doorbells.set(id, button);
-      return endpoint;
+      this.cameraChildren.set(id, cameraEndpoint); this.doorbells.set(id, button); return endpoint;
     }
-
     const endpoint = new MatterbridgeEndpoint([camera, bridgedNode], { id }, this.config.debug)
-      .createDefaultBridgedDeviceBasicInformationClusterServer(name, id.slice(0, 32), 0xfff1, 'Matterbridge Camera', 'RTSP Camera')
-      .addRequiredClusterServers();
+      .createDefaultBridgedDeviceBasicInformationClusterServer(name, id.slice(0, 32), 0xfff1, 'Matterbridge Camera', 'RTSP Camera').addRequiredClusterServers();
     endpoint.behaviors.inject(MatterCameraAvStreamManagementServer, cameraAvStreamDefaults());
     endpoint.behaviors.inject(MatterWebRtcTransportProviderServer);
     endpoint.behaviors.inject(CameraRequirements.WebRtcTransportRequestorClient);
-    this.cameraChildren.set(id, endpoint);
-    return endpoint;
+    this.cameraChildren.set(id, endpoint); return endpoint;
   }
 
   override async onShutdown(reason?: string): Promise<void> {
     this.log.info(`Stopping ${this.config.name}: ${reason ?? 'shutdown'}`);
-    await this.ringServer?.stop();
-    this.doorbells.clear();
-    this.roots.clear();
-    this.cameraChildren.clear();
-    await this.homekit?.stop();
-    await super.onShutdown(reason);
+    await this.ringServer?.stop(); this.doorbells.clear(); this.roots.clear(); this.cameraChildren.clear(); await this.homekit?.stop(); await super.onShutdown(reason);
   }
 }
