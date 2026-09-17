@@ -127,23 +127,27 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
   private createCameraEndpoint(cameraConfig: CameraConfig): MatterbridgeEndpoint {
     const { id, name } = cameraConfig;
     if (cameraConfig.videoDoorbell) {
-      // Matterbridge 3.10.9 contains the VideoDoorbell implementation but does not
-      // export the VideoDoorbell class from matterbridge/devices. Compose the same
-      // public device types here while retaining our custom RTSP camera behaviors.
-      const endpoint = new MatterbridgeEndpoint([videoDoorbell], { id }, this.config.debug)
-        .createDefaultBasicInformationClusterServer(name, id.slice(0, 32), 0xfff1, 'Matterbridge', 0x8000, 'RTSP Video Doorbell')
-        .addRequiredClusterServers();
+      // Backport the public composition used by Matterbridge's VideoDoorbell class.
+      // 3.10.9 exposes the chapter-16 device types, but not the VideoDoorbell class itself.
+      // Keep the official child identities (Camera / Doorbell) and use addRequiredClusters(),
+      // which is what the upstream implementation uses for composed endpoints.
+      const endpoint = new MatterbridgeEndpoint([videoDoorbell], { id });
+      endpoint.createDefaultBasicInformationClusterServer(name, id.slice(0, 32), 0xfff1, 'Matterbridge', 0x8000, 'RTSP Video Doorbell');
+      endpoint.addRequiredClusters();
 
-      const cameraEndpoint = endpoint.addChildDeviceType(id, camera, {});
+      const cameraEndpoint = endpoint.addChildDeviceType('Camera', camera, {});
+      cameraEndpoint.log.logName = 'Camera';
       cameraEndpoint.behaviors.inject(MatterCameraAvStreamManagementServer, cameraAvStreamDefaults());
       cameraEndpoint.behaviors.inject(MatterWebRtcTransportProviderServer);
       cameraEndpoint.behaviors.inject(CameraRequirements.WebRtcTransportRequestorClient);
-      cameraEndpoint.addRequiredClusterServers();
+      cameraEndpoint.addRequiredClusters();
 
-      const button = endpoint.addChildDeviceType(`${id}-doorbell`, doorbell, {});
+      const button = endpoint.addChildDeviceType('Doorbell', doorbell, {});
+      button.log.logName = 'Doorbell';
+      button.createDefaultIdentifyClusterServer();
       button.createDefaultMomentarySwitchClusterServer();
       button.behaviors.require(DoorbellRequirements.ChimeClient);
-      button.addRequiredClusterServers();
+      button.addRequiredClusters();
 
       this.cameraChildren.set(id, cameraEndpoint);
       this.doorbells.set(id, button);
