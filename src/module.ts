@@ -134,11 +134,13 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
 
   private createCameraEndpoint(cameraConfig: CameraConfig): MatterbridgeEndpoint {
     const { id, name } = cameraConfig;
-    // A native Matter Video Doorbell is a composed Matter endpoint.  Do not mark
-    // it as a bridged node: doing so causes its Camera/Doorbell child endpoints
-    // to be numbered but left inactive after registration.
+    // A Video Doorbell is a composed bridged device. Match Matterbridge's own
+    // VideoDoorbell implementation: the root carries the VideoDoorbell device
+    // type and registration uses Matterbridge's default bridge mode. Explicitly
+    // forcing mode:'matter' creates a separate node and leaves child endpoints
+    // inactive when this plugin itself is running behind the Matterbridge bridge.
     const endpoint = cameraConfig.videoDoorbell
-      ? new MatterbridgeEndpoint(videoDoorbell, { id, mode: 'matter' }, this.config.debug)
+      ? new MatterbridgeEndpoint(videoDoorbell, { id }, this.config.debug)
           .createDefaultBasicInformationClusterServer(
             name,
             id.slice(0, 32),
