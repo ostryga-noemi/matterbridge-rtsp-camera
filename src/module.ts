@@ -50,6 +50,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
   private homekit?: HomeKitCameraPublisher;
   private ringServer?: RingServer;
   private readonly doorbells = new Map<string, MatterbridgeEndpoint>();
+  private readonly roots = new Map<string, MatterbridgeEndpoint>();
 
   constructor(
     matterbridge: PlatformMatterbridge,
@@ -96,6 +97,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
       this.ringServer = new RingServer(this.config.ringServer, async id => {
         const button = this.doorbells.get(id);
         if (!button) return 'not-found';
+        this.logEndpointDiagnostics(id, button);
         return await button.triggerSwitchEvent('Single', this.log) ? 'ok' : 'unavailable';
       });
     }
@@ -109,10 +111,24 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
     for (const cameraConfig of cameras) {
       this.go2rtc.registerDirectSource(cameraConfig.id, cameraConfig.name, cameraConfig.rtspUrl);
       const endpoint = this.createCameraEndpoint(cameraConfig);
+      this.roots.set(cameraConfig.id, endpoint);
       await this.registerDevice(endpoint);
+      this.logEndpointDiagnostics(cameraConfig.id, this.doorbells.get(cameraConfig.id));
       this.setSelectDevice(cameraConfig.id, cameraConfig.name);
     }
     await this.ringServer?.start();
+  }
+
+  private logEndpointDiagnostics(id: string, button?: MatterbridgeEndpoint): void {
+    const root = this.roots.get(id);
+    const cameraChild = root?.getChildEndpointById(id);
+    const describe = (endpoint?: MatterbridgeEndpoint): string => {
+      if (!endpoint) return 'missing';
+      const ep = endpoint as MatterbridgeEndpoint & { lifecycle?: { isReady?: boolean; isInstalled?: boolean; isActive?: boolean; isDestroyed?: boolean } };
+      const lifecycle = ep.lifecycle;
+      return `id=${endpoint.maybeId ?? endpoint.id} number=${endpoint.maybeNumber ?? 'none'} lifecycle=${lifecycle ? JSON.stringify({ ready: lifecycle.isReady, installed: lifecycle.isInstalled, active: lifecycle.isActive, destroyed: lifecycle.isDestroyed }) : 'unavailable'}`;
+    };
+    this.log.warn(`[doorbell-diag] ${id} root{${describe(root)}} camera{${describe(cameraChild)}} doorbell{${describe(button)}}`);
   }
 
   private validateCameraConfig(cameraConfig: CameraConfig): CameraConfig {
@@ -134,11 +150,6 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
 
   private createCameraEndpoint(cameraConfig: CameraConfig): MatterbridgeEndpoint {
     const { id, name } = cameraConfig;
-    // A Video Doorbell is a composed bridged device. Match Matterbridge's own
-    // VideoDoorbell implementation: the root carries the VideoDoorbell device
-    // type and registration uses Matterbridge's default bridge mode. Explicitly
-    // forcing mode:'matter' creates a separate node and leaves child endpoints
-    // inactive when this plugin itself is running behind the Matterbridge bridge.
     const endpoint = cameraConfig.videoDoorbell
       ? new MatterbridgeEndpoint(videoDoorbell, { id }, this.config.debug)
           .createDefaultBasicInformationClusterServer(
@@ -160,8 +171,6 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
           )
           .addRequiredClusterServers();
 
-    // Keep the camera child's ID equal to the configured stream ID: the streaming
-    // behaviors use endpoint.id to look up the existing go2rtc direct source.
     const cameraEndpoint = cameraConfig.videoDoorbell ? endpoint.addChildDeviceType(id, camera) : endpoint;
     cameraEndpoint.addRequiredClusterServers();
     if (cameraConfig.videoDoorbell) {
@@ -182,6 +191,7 @@ export class MatterbridgeCameraPlatform extends MatterbridgeDynamicPlatform {
     this.log.info(`Stopping ${this.config.name}: ${reason ?? 'shutdown'}`);
     await this.ringServer?.stop();
     this.doorbells.clear();
+    this.roots.clear();
     await this.homekit?.stop();
     await super.onShutdown(reason);
   }
