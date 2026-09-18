@@ -1,3 +1,4 @@
+import { cameraSourceId } from '../cameraSourceId.js';
 import { CameraAvStreamManagementServer as BaseCameraAvStreamManagementServer } from '@matter/main/behaviors/camera-av-stream-management';
 import { CameraAvStreamManagement } from '@matter/types/clusters/camera-av-stream-management';
 import { Status, StatusResponseError, StreamUsage } from '@matter/types';
@@ -47,7 +48,7 @@ export class MatterCameraAvStreamManagementServer extends CameraAvServer {
         const go2rtc = streamContext.go2rtc;
         if (!go2rtc) return;
 
-        const cameraId = String(this.endpoint.id);
+        const cameraId = cameraSourceId(this.endpoint, id => go2rtc.isRegistered(id));
         const transform = imageTransformFromMatterState(this.state);
         void go2rtc.setImageTransform(cameraId, transform).catch(error => {
             logger.warn(`ImageControl go2rtc refresh failed camera=${cameraId}: ${error}`);
@@ -153,7 +154,7 @@ export class MatterCameraAvStreamManagementServer extends CameraAvServer {
         const go2rtc = streamContext.go2rtc;
         if (!go2rtc) throw new Error('go2rtc client not initialized');
 
-        const cameraId = String(this.endpoint.id);
+        const cameraId = cameraSourceId(this.endpoint, id => go2rtc.isRegistered(id));
         logHubEndpointAdoption(cameraId, 'captureSnapshot');
         let maxWidth = clampSnapshotWidth(request.requestedResolution?.width);
         let maxHeight: number | undefined;

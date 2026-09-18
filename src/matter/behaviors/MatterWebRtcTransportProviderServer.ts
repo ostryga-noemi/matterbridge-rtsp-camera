@@ -1,3 +1,4 @@
+import { cameraSourceId } from '../cameraSourceId.js';
 import { CameraRequirements } from '@matter/main/devices/camera';
 import { ClientNode, ServerNode } from '@matter/main';
 import { Logger } from '@matter/general';
@@ -96,7 +97,7 @@ export class MatterWebRtcTransportProviderServer extends CameraRequirements.WebR
             );
         }
 
-        const cameraId = String(this.endpoint.id);
+        const cameraId = cameraSourceId(this.endpoint, id => go2rtc.isRegistered(id));
         logHubEndpointAdoption(cameraId, 'provideOffer');
         const sessionId = this.#allocateSessionId(request.webRtcSessionId);
         const hubEndpoint = this.#hubEndpoint(request.originatingEndpointId);

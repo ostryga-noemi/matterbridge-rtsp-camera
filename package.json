@@ -1,6 +1,6 @@
 {
   "name": "matterbridge-rtsp-camera",
-  "version": "0.3.1-doorbell.14",
+  "version": "0.3.1-doorbell.15",
   "description": "Matterbridge plugin for RTSP cameras using Matter or native HomeKit",
   "author": "Joel Kirchmeyer",
   "maintainers": [
